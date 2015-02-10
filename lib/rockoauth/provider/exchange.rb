@@ -2,9 +2,9 @@ module RockOAuth
   class Provider
 
     class Exchange
-      attr_reader :client, :error, :error_description
+      attr_reader :client, :error, :owner, :authorization, :error_description
 
-      REQUIRED_PARAMS    = [CLIENT_ID, CLIENT_SECRET, GRANT_TYPE]
+      REQUIRED_PARAMS    = [CLIENT_ID, GRANT_TYPE]
       VALID_GRANT_TYPES  = [AUTHORIZATION_CODE, PASSWORD, ASSERTION, REFRESH_TOKEN]
 
       REQUIRED_PASSWORD_PARAMS  = [USERNAME, PASSWORD]
@@ -34,7 +34,7 @@ module RockOAuth
         false
       end
 
-      def response_body
+      def response
         return jsonize(ERROR, ERROR_DESCRIPTION) unless valid?
         update_authorization
 
@@ -47,6 +47,14 @@ module RockOAuth
           response[EXPIRES_IN] = expiry
         end
 
+        response
+      end
+
+      def access_token
+        response['access_token']
+      end
+
+      def response_body
         JSON.unparse(response)
       end
 
@@ -78,7 +86,7 @@ module RockOAuth
       def jsonize(*ivars)
         hash = {}
         ivars.each { |key| hash[key] = instance_variable_get("@#{key}") }
-        JSON.unparse(hash)
+        hash
       end
 
       def validate!
@@ -91,7 +99,8 @@ module RockOAuth
         validate_required_params
 
         return if @error
-        validate_client
+        validate_client_id
+        validate_client_secret unless [ASSERTION, PASSWORD].include?(@grant_type)
 
         unless VALID_GRANT_TYPES.include?(@grant_type)
           @error = UNSUPPORTED_GRANT_TYPE
@@ -111,13 +120,15 @@ module RockOAuth
         end
       end
 
-      def validate_client
+      def validate_client_id
         @client = Model::Client.find_by_client_id(@params[CLIENT_ID])
         unless @client
           @error = INVALID_CLIENT
           @error_description = "Unknown client ID #{@params[CLIENT_ID]}"
         end
+      end
 
+      def validate_client_secret
         if @client and not @client.valid_client_secret?(@params[CLIENT_SECRET])
           @error = INVALID_CLIENT
           @error_description = 'Parameter client_secret does not match'
